@@ -260,7 +260,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python agent.py                     # Run job scout
+  python agent.py                     # Run job scout once
+  python agent.py --listen            # Start bot listener (responds to /search, /status, etc.)
   python agent.py --more              # Send 10 more jobs
   python agent.py --more 20           # Send 20 more jobs
   python agent.py --resume myresume.pdf   # Upload resume for fit scoring
@@ -277,6 +278,8 @@ Examples:
     parser.add_argument("--test", action="store_true", help="Test Telegram connection")
     parser.add_argument("--more", type=int, metavar="N", nargs="?", const=10,
                        help="Send N more jobs (default: 10) - fetches fresh and shows next batch")
+    parser.add_argument("--listen", action="store_true",
+                       help="Start bot listener - responds to Telegram commands (/search, /status, /more)")
 
     # Resume options
     parser.add_argument("--resume", metavar="FILE",
@@ -313,6 +316,9 @@ Examples:
     if args.test:
         from telegram_notifier import test_telegram
         asyncio.run(test_telegram())
+    elif args.listen:
+        from bot_listener import main as run_listener
+        asyncio.run(run_listener())
     elif args.status:
         asyncio.run(send_status())
     elif args.more:
