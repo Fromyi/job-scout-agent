@@ -1,18 +1,20 @@
 """Job ranking and filtering to find the best matches."""
 import re
-from typing import List
+from typing import List, Optional
 from dataclasses import dataclass
 
 from scrapers import Job
 from config import config
+from resume_manager import resume_manager, JobFitScore
 
 
 @dataclass
 class ScoredJob:
-    """Job with relevance score."""
+    """Job with relevance score and fit analysis."""
     job: Job
     score: float
     reasons: List[str]
+    fit_score: Optional[JobFitScore] = None
 
 
 def calculate_job_score(job: Job) -> ScoredJob:
@@ -76,7 +78,7 @@ def calculate_job_score(job: Job) -> ScoredJob:
             except:
                 pass
 
-    # === Location Scoring (Bayonne, NJ - 30 mile radius) ===
+    # === Location Scoring (Bayonne, NJ - 5-30 mile radius for NJ, Manhattan/Brooklyn only for NY) ===
     location_lower = job.location.lower()
 
     if "remote" in location_lower:
@@ -86,29 +88,69 @@ def calculate_job_score(job: Job) -> ScoredJob:
         score += 15
         reasons.append("Hybrid option")
 
-    # Valid locations within 30 miles of Bayonne, NJ
-    valid_nj = ["bayonne", "jersey city", "hoboken", "newark", "elizabeth",
-                "union city", "secaucus", "kearny", "harrison", "fort lee",
-                "hackensack", "morristown", "edison", "new brunswick"]
-    valid_nyc = ["new york", "nyc", "manhattan", "brooklyn", "queens", "staten island"]
+    # NJ locations within 5-30 miles of Bayonne ONLY
+    # Close NJ (5-15 mi)
+    close_nj = ["bayonne", "jersey city", "hoboken", "newark", "secaucus", "kearny",
+                "harrison", "union city", "west new york", "north bergen"]
+    # Medium NJ (15-30 mi)
+    medium_nj = ["elizabeth", "fort lee", "hackensack", "englewood", "paramus",
+                 "clifton", "passaic", "paterson", "east orange", "orange",
+                 "irvington", "bloomfield", "montclair", "linden", "rahway",
+                 "cranford", "woodbridge", "edison"]
+    # Far NJ (>30 mi) - EXCLUDED
+    excluded_nj = ["morristown", "parsippany", "wayne", "new brunswick", "perth amboy",
+                   "trenton", "princeton", "somerset", "toms river"]
 
-    # NJ locations (closer = better)
-    close_nj = ["bayonne", "jersey city", "hoboken", "newark", "secaucus", "kearny"]
-    if any(loc in location_lower for loc in close_nj):
-        score += 20
-        reasons.append("Close to Bayonne (<15 mi)")
-    elif any(loc in location_lower for loc in valid_nj):
-        score += 12
-        reasons.append("Within 30 mi radius")
-    elif any(loc in location_lower for loc in valid_nyc):
-        score += 10
-        reasons.append("NYC accessible")
-    elif "nj" in location_lower or "new jersey" in location_lower:
-        score += 8
-        reasons.append("NJ area")
-    else:
-        # Unknown location - might be too far
-        score -= 5
+    # NY locations - ONLY Manhattan and Brooklyn allowed
+    valid_nyc = ["manhattan", "brooklyn"]
+    # Excluded NYC boroughs
+    excluded_nyc = ["queens", "bronx", "staten island"]
+
+    # Apply location scoring
+    location_matched = False
+
+    # Check for excluded NJ locations first (>30 mi)
+    if any(loc in location_lower for loc in excluded_nj):
+        score -= 20
+        reasons.append("NJ too far (>30 mi) - excluded")
+        location_matched = True
+    # Check NJ locations (5-30 mile radius only)
+    elif any(loc in location_lower for loc in close_nj):
+        score += 25
+        reasons.append("NJ close (5-15 mi)")
+        location_matched = True
+    elif any(loc in location_lower for loc in medium_nj):
+        score += 18
+        reasons.append("NJ medium (15-30 mi)")
+        location_matched = True
+
+    # Check NYC - only Manhattan and Brooklyn
+    if not location_matched:
+        if any(loc in location_lower for loc in valid_nyc):
+            score += 20
+            reasons.append(f"NYC ({[loc for loc in valid_nyc if loc in location_lower][0].title()})")
+            location_matched = True
+        elif any(loc in location_lower for loc in excluded_nyc):
+            score -= 15  # Penalize excluded NYC boroughs
+            reasons.append("NYC excluded borough (Queens/Bronx/SI)")
+            location_matched = True
+        elif "new york" in location_lower or "nyc" in location_lower:
+            # Generic "New York" - assume could be Manhattan
+            score += 10
+            reasons.append("NYC (unspecified)")
+            location_matched = True
+
+    # Generic NJ
+    if not location_matched:
+        if "nj" in location_lower or "new jersey" in location_lower:
+            score += 12
+            reasons.append("NJ area")
+            location_matched = True
+
+    # Unknown/other location
+    if not location_matched and "remote" not in location_lower and "hybrid" not in location_lower:
+        score -= 10
+        reasons.append("Location outside target area")
 
     # === Company Scoring ===
 
@@ -202,11 +244,44 @@ def calculate_job_score(job: Job) -> ScoredJob:
     if any(term in title_lower for term in ["senior", "sr.", "principal", "staff"]):
         score -= 5  # Small penalty - still might be worth applying
 
-    return ScoredJob(job=job, score=score, reasons=reasons)
+    # === Resume-Based Fit Scoring ===
+    fit_score = None
+    if resume_manager.has_resume():
+        fit_score = resume_manager.calculate_fit_score(
+            job_title=job.title,
+            job_description=job.description_snippet or "",
+            job_location=job.location,
+            job_company=job.company
+        )
+
+        # Add fit score to overall ranking (weighted)
+        # Fit score is 0-100, scale it to add 0-50 points
+        fit_bonus = fit_score.overall_score * 0.5
+        score += fit_bonus
+
+        if fit_score.overall_score >= 75:
+            reasons.append(f"Resume fit: {fit_score.get_fit_label()} ({fit_score.overall_score}%)")
+        elif fit_score.overall_score >= 50:
+            reasons.append(f"Resume fit: {fit_score.overall_score}%")
+
+        # Add top fit reasons
+        if fit_score.reasons:
+            reasons.extend(fit_score.reasons[:2])
+
+    return ScoredJob(job=job, score=score, reasons=reasons, fit_score=fit_score)
 
 
-def rank_jobs(jobs: List[Job], max_results: int = 15) -> List[Job]:
-    """Rank jobs and return top matches."""
+def rank_jobs(jobs: List[Job], max_results: int = 15, return_scored: bool = False):
+    """Rank jobs and return top matches.
+
+    Args:
+        jobs: List of jobs to rank
+        max_results: Maximum number of jobs to return
+        return_scored: If True, return ScoredJob objects with fit scores
+
+    Returns:
+        List of Job or ScoredJob objects depending on return_scored
+    """
     if not jobs:
         return []
 
@@ -226,10 +301,20 @@ def rank_jobs(jobs: List[Job], max_results: int = 15) -> List[Job]:
     print(f"\nJob Ranking (showing top {len(top_jobs)}):")
     print("-" * 50)
     for i, sj in enumerate(top_jobs, 1):
-        print(f"{i}. [{sj.score:.0f}] {sj.job.title} @ {sj.job.company}")
+        fit_str = ""
+        if sj.fit_score:
+            fit_str = f" | Fit: {sj.fit_score.overall_score}% {sj.fit_score.get_emoji_rating()}"
+        print(f"{i}. [{sj.score:.0f}] {sj.job.title} @ {sj.job.company}{fit_str}")
         print(f"   Reasons: {', '.join(sj.reasons[:3])}")
 
+    if return_scored:
+        return top_jobs
     return [sj.job for sj in top_jobs]
+
+
+def rank_jobs_with_scores(jobs: List[Job], max_results: int = 15) -> List[ScoredJob]:
+    """Rank jobs and return ScoredJob objects with fit scores."""
+    return rank_jobs(jobs, max_results, return_scored=True)
 
 
 def get_daily_job_limit() -> int:

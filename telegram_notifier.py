@@ -1,10 +1,11 @@
 """Telegram notification handler."""
 import asyncio
-from typing import List
+from typing import List, Union
 import httpx
 
 from config import config
 from scrapers import Job
+from ranker import ScoredJob
 
 
 class TelegramNotifier:
@@ -37,26 +38,65 @@ class TelegramNotifier:
         """Send a single job alert."""
         return await self.send_message(job.to_telegram_message())
 
-    async def send_job_batch(self, jobs: List[Job], batch_title: str = None) -> int:
-        """Send multiple jobs as a batch with summary."""
+    async def send_scored_job_alert(self, scored_job: ScoredJob) -> bool:
+        """Send a job alert with fit score."""
+        job = scored_job.job
+        fit = scored_job.fit_score
+
+        # Build message with fit score
+        salary_text = f"\n💰 {job.salary}" if job.salary else ""
+
+        if fit:
+            fit_text = f"\n📊 *Fit Score: {fit.overall_score}%* {fit.get_emoji_rating()}"
+            fit_text += f"\n   _{fit.get_fit_label()}_"
+            if fit.reasons:
+                fit_text += f"\n   {', '.join(fit.reasons[:2])}"
+        else:
+            fit_text = ""
+
+        message = (
+            f"🔹 *{job.title}*\n"
+            f"🏢 {job.company}\n"
+            f"📍 {job.location}{salary_text}{fit_text}\n"
+            f"🔗 [Apply]({job.url})\n"
+            f"📅 {job.posted_date or 'Recent'} • {job.source.title()}"
+        )
+
+        return await self.send_message(message)
+
+    async def send_job_batch(self, jobs: List[Union[Job, ScoredJob]], batch_title: str = None) -> int:
+        """Send multiple jobs as a batch with summary.
+
+        Accepts both Job and ScoredJob objects. ScoredJob objects will show fit scores.
+        """
         if not jobs:
             return 0
 
         sent_count = 0
 
+        # Check if we have scored jobs with fit scores
+        has_fit_scores = any(isinstance(j, ScoredJob) and j.fit_score for j in jobs)
+
         # Send header
         header = f"🔔 *Job Scout Alert*\n"
         if batch_title:
             header += f"_{batch_title}_\n"
-        header += f"\n📊 Found *{len(jobs)}* new job(s) matching your criteria:\n"
+        header += f"\n📊 Found *{len(jobs)}* new job(s) matching your criteria"
+        if has_fit_scores:
+            header += " (with fit scores)"
+        header += ":\n"
         header += "─" * 20
 
         await self.send_message(header)
         await asyncio.sleep(0.5)  # Rate limiting
 
         # Send each job
-        for i, job in enumerate(jobs):
-            success = await self.send_job_alert(job)
+        for i, job_item in enumerate(jobs):
+            if isinstance(job_item, ScoredJob):
+                success = await self.send_scored_job_alert(job_item)
+            else:
+                success = await self.send_job_alert(job_item)
+
             if success:
                 sent_count += 1
 

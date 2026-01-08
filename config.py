@@ -25,30 +25,44 @@ class JobPreferences:
         "Systems Support",
     ])
 
-    # Location - Bayonne, NJ with 30 mile radius
+    # Location - Bayonne, NJ with 5-30 mile radius preference
     location: str = "Bayonne, NJ"
-    location_radius: int = 30  # miles
+    location_radius_min: int = 5   # miles (minimum)
+    location_radius_max: int = 30  # miles (maximum)
     remote_ok: bool = True  # Include remote jobs
     hybrid_ok: bool = True  # Include hybrid jobs
 
-    # Areas within 30 miles of Bayonne, NJ
+    # NYC restrictions - only Manhattan and Brooklyn allowed
+    nyc_allowed_boroughs: list = None  # Set in __post_init__
+
+    # Areas within target range
     valid_locations: list = None  # Set in __post_init__
 
     def __post_init__(self):
+        # NYC - ONLY Manhattan and Brooklyn allowed
+        self.nyc_allowed_boroughs = ["manhattan", "brooklyn"]
+
+        # NJ - ONLY 5-30 mile radius (close + medium)
         self.valid_locations = [
-            # NJ Cities (within 30 miles of Bayonne)
-            "bayonne", "jersey city", "hoboken", "newark", "elizabeth",
-            "union city", "west new york", "north bergen", "secaucus",
-            "kearny", "harrison", "east orange", "orange", "irvington",
-            "bloomfield", "montclair", "clifton", "passaic", "paterson",
-            "hackensack", "fort lee", "englewood", "paramus", "wayne",
-            "morristown", "parsippany", "edison", "new brunswick",
-            "woodbridge", "perth amboy", "linden", "rahway", "cranford",
-            # NYC (all boroughs accessible)
-            "new york", "nyc", "manhattan", "brooklyn", "queens",
-            "bronx", "staten island",
+            # NJ Cities - Close (5-15 miles from Bayonne)
+            "bayonne", "jersey city", "hoboken", "newark", "secaucus",
+            "kearny", "harrison", "union city", "west new york", "north bergen",
+            # NJ Cities - Medium (15-30 miles)
+            "elizabeth", "fort lee", "hackensack", "englewood", "paramus",
+            "clifton", "passaic", "paterson", "east orange", "orange",
+            "irvington", "bloomfield", "montclair", "linden", "rahway",
+            "cranford", "woodbridge", "edison",
+            # NYC - Only Manhattan and Brooklyn
+            "manhattan", "brooklyn",
             # Generic
             "remote", "hybrid", "new jersey", "nj",
+        ]
+
+        # Excluded locations (>30 mi from Bayonne)
+        self.excluded_locations = [
+            "morristown", "parsippany", "wayne", "new brunswick", "perth amboy",
+            "trenton", "princeton", "somerset", "toms river",
+            "queens", "bronx", "staten island",
         ]
 
     # Experience level
