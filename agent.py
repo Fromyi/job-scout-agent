@@ -195,6 +195,64 @@ def show_resume_info():
         print("Use --resume <file> to upload your resume for fit scoring.")
 
 
+async def send_more_jobs(count: int = 10):
+    """Fetch fresh jobs and send more matches."""
+    print(f"\n{'='*50}")
+    print(f"Fetching {count} more jobs - {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"{'='*50}\n")
+
+    db = JobDatabase()
+    notifier = TelegramNotifier()
+
+    try:
+        # Scrape fresh jobs
+        print("Scraping job boards for fresh listings...")
+        all_jobs = await scrape_all_jobs()
+
+        if not all_jobs:
+            await notifier.send_message("🔍 No jobs found from job boards. Try again later.")
+            return
+
+        # Get all jobs (including previously seen but not notified)
+        # This gives users more options beyond the daily limit
+        print(f"Total jobs scraped: {len(all_jobs)}")
+
+        # Rank all jobs
+        if resume_manager.has_resume():
+            print("Using resume for fit scoring...")
+            scored_jobs = rank_jobs_with_scores(all_jobs, max_results=count)
+
+            if scored_jobs:
+                await notifier.send_job_batch(
+                    scored_jobs,
+                    batch_title=f"More Jobs ({count} requested)"
+                )
+                # Mark as seen
+                db.mark_jobs_seen([sj.job for sj in scored_jobs], notified=True)
+                print(f"Sent {len(scored_jobs)} jobs")
+            else:
+                await notifier.send_message("🔍 No matching jobs found. Try adjusting your criteria.")
+        else:
+            top_jobs = rank_jobs(all_jobs, max_results=count)
+
+            if top_jobs:
+                await notifier.send_job_batch(
+                    top_jobs,
+                    batch_title=f"More Jobs ({count} requested)"
+                )
+                db.mark_jobs_seen(top_jobs, notified=True)
+                print(f"Sent {len(top_jobs)} jobs")
+            else:
+                await notifier.send_message("🔍 No matching jobs found. Try adjusting your criteria.")
+
+        # Mark all as seen
+        db.mark_jobs_seen(all_jobs, notified=False)
+
+    except Exception as e:
+        print(f"Error: {e}")
+        await notifier.send_error_message(str(e))
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -203,6 +261,8 @@ def main():
         epilog="""
 Examples:
   python agent.py                     # Run job scout
+  python agent.py --more              # Send 10 more jobs
+  python agent.py --more 20           # Send 20 more jobs
   python agent.py --resume myresume.pdf   # Upload resume for fit scoring
   python agent.py --resume-info       # Show current resume status
   python agent.py --current-job "IT Support Specialist"  # Set current job
@@ -215,6 +275,8 @@ Examples:
     parser.add_argument("--force", action="store_true", help="Force notify even if no new jobs")
     parser.add_argument("--status", action="store_true", help="Send status to Telegram")
     parser.add_argument("--test", action="store_true", help="Test Telegram connection")
+    parser.add_argument("--more", type=int, metavar="N", nargs="?", const=10,
+                       help="Send N more jobs (default: 10) - fetches fresh and shows next batch")
 
     # Resume options
     parser.add_argument("--resume", metavar="FILE",
@@ -253,6 +315,8 @@ Examples:
         asyncio.run(test_telegram())
     elif args.status:
         asyncio.run(send_status())
+    elif args.more:
+        asyncio.run(send_more_jobs(count=args.more))
     else:
         asyncio.run(run_job_scout(send_welcome=args.welcome, force_notify=args.force))
 

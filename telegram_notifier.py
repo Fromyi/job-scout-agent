@@ -110,7 +110,7 @@ class TelegramNotifier:
 
         # Send footer
         footer = f"\n✅ Sent {sent_count}/{len(jobs)} jobs\n"
-        footer += "💡 _Reply /stop to pause alerts_"
+        footer += "💡 _Commands: /more (get more jobs) • /search (new search) • /stop (pause)_"
         await self.send_message(footer)
 
         return sent_count
@@ -151,6 +151,7 @@ class TelegramNotifier:
             "*Commands:*\n"
             "/status - Check agent status\n"
             "/search - Run search now\n"
+            "/more - Get more job matches\n"
             "/stop - Pause alerts\n\n"
             "_Happy job hunting!_ 🚀"
         )
