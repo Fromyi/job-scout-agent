@@ -2,6 +2,9 @@
 import os
 from dataclasses import dataclass, field
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 @dataclass
 class JobPreferences:
@@ -82,8 +85,8 @@ class JobPreferences:
 @dataclass
 class TelegramConfig:
     """Telegram bot configuration."""
-    bot_token: str = "8139270854:AAFBIu_fbg6odREDZ8KEVsna1fL1TqQzlCY"
-    chat_id: int = 843945987
+    bot_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
+    chat_id: int = field(default_factory=lambda: int(os.getenv("TELEGRAM_CHAT_ID", "0")))
 
 
 @dataclass

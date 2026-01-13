@@ -1,5 +1,31 @@
 # Job Scout Agent
 
+## Claude Code Guidelines
+
+**Token Efficiency:**
+- Be concise. Short answers preferred.
+- Skip unnecessary explanations unless asked.
+- Use bullet points over paragraphs.
+- Don't repeat information already in this file.
+- One-line answers when possible.
+
+**Rate Limit Protocol:**
+- Monitor token usage throughout session.
+- Before hitting rate limit: STOP and save all work in progress.
+- Update this CLAUDE.md with any new learnings, commands, or fixes discovered.
+- If implementing changes: commit or write to files before rate limit.
+- Warn user when approaching limit so they can continue later.
+
+**Session State:**
+- Track what was being worked on.
+- Document any pending tasks below before session ends.
+
+### Pending Tasks
+_(Updated each session as needed)_
+- None
+
+---
+
 ## Overview
 Automated job scraper that finds IT Support jobs and sends alerts via Telegram with resume-based fit scoring.
 
@@ -99,9 +125,12 @@ sudo systemctl status jobscout
 - `database.py` - SQLite job tracking
 - `config.py` - Configuration
 
-## Telegram Bot
-- Token: `8139270854:AAFBIu_fbg6odREDZ8KEVsna1fL1TqQzlCY`
-- Chat ID: `843945987`
+## Telegram Bot Setup
+Set environment variables in `.env` file:
+```bash
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+```
 
 ## Data Sources (Free)
 - LinkedIn Jobs (scraping)
